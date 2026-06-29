@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>🏆 The Bracket</title>
+<title>Sedona Olympics 2026</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -17,7 +17,6 @@
     100% { transform: scale(1); opacity: 1; }
   }
   .pop { animation: popIn 0.25s ease forwards; }
-  .flag { font-size: 32px; line-height: 1; }
 </style>
 </head>
 <body>
@@ -34,7 +33,6 @@ const TEAMS = [
 
 const SPORTS = [
   { id: "bp", name: "Beer Pong", icon: "\uD83C\uDFD3", color: "#f59e0b" },
-  { id: "ch", name: "Cornhole", icon: "\uD83C\uDF3D", color: "#10b981" },
   { id: "pool", name: "Pool", icon: "\uD83C\uDFB1", color: "#8b5cf6" },
 ];
 
@@ -48,8 +46,7 @@ const DRINK_RULES = [
   { trigger: "Aaron says something mean", consequence: "Everyone drinks \uD83D\uDE08" },
 ];
 
-const BRACKET_KEY = "bracket-v8-bracket";
-const RULES_KEY   = "bracket-v8-rules";
+const STORAGE_KEY = "sedona-olympics-v1";
 
 function shuffle(arr) {
   const a = [...arr];
@@ -60,154 +57,187 @@ function shuffle(arr) {
   return a;
 }
 
+function randomSport() {
+  return SPORTS[Math.floor(Math.random() * SPORTS.length)];
+}
+
 function randomRule() {
   return DRINK_RULES[Math.floor(Math.random() * DRINK_RULES.length)];
 }
 
-function initBracket() {
-  const b = {};
-  for (const sport of SPORTS) {
-    const seeded = shuffle([0, 1, 2, 3]);
-    b[sport.id] = {
-      r1: [
-        { a: seeded[0], b: seeded[1], winner: null },
-        { a: seeded[2], b: seeded[3], winner: null },
-      ],
-      r2: [{ a: null, b: null, winner: null }],
-    };
-  }
-  return b;
+// State shape:
+// r1: two simultaneous matches, sport pre-assigned
+// r2: winners match + losers match, sport randomly drawn
+// final: top 2, sport randomly drawn
+function initState() {
+  const teams = shuffle([0, 1, 2, 3]);
+  return {
+    r1: [
+      { a: teams[0], b: teams[1], sport: "bp", winner: null, rule: null },
+      { a: teams[2], b: teams[3], sport: "pool", winner: null, rule: null },
+    ],
+    r2: [
+      { a: null, b: null, sport: null, winner: null, rule: null, label: "Winners Match" },
+      { a: null, b: null, sport: null, winner: null, rule: null, label: "Losers Match" },
+    ],
+    final: { a: null, b: null, sport: null, winner: null, rule: null },
+  };
 }
 
-function initRules() { return {}; }
-
-function loadJSON(key, fallback) {
+function loadState() {
   try {
-    const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : fallback();
-  } catch { return fallback(); }
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : null;
+  } catch { return null; }
 }
 
-function getMedals(brackets) {
-  const medals = {};
-  TEAMS.forEach(t => { medals[t.id] = { gold: [], silver: [], bronze: [] }; });
-  for (const sport of SPORTS) {
-    const b = brackets[sport.id];
-    b.r1.forEach(match => {
-      if (match.winner !== null) {
-        const loser = match.winner === match.a ? match.b : match.a;
-        medals[loser].bronze.push(sport);
-      }
-    });
-    const final = b.r2[0];
-    if (final.winner !== null) {
-      const loser = final.winner === final.a ? final.b : final.a;
-      medals[final.winner].gold.push(sport);
-      medals[loser].silver.push(sport);
-    }
-  }
-  return medals;
+function getStandings(state) {
+  const wins = { 0: 0, 1: 0, 2: 0, 3: 0 };
+  [...state.r1, ...state.r2].forEach(m => {
+    if (m.winner !== null) wins[m.winner]++;
+  });
+  if (state.final.winner !== null) wins[state.final.winner]++;
+  return TEAMS.map(t => ({ ...t, wins: wins[t.id] })).sort((a, b) => b.wins - a.wins);
 }
 
 function App() {
-  const [brackets, setBrackets] = useState(() => loadJSON(BRACKET_KEY, initBracket));
-  const [rules, setRules]       = useState(() => loadJSON(RULES_KEY, initRules));
-  const [activeSport, setActiveSport] = useState("bp");
+  const [state, setState] = useState(() => loadState() || initState());
   const [saveFlash, setSaveFlash] = useState(false);
-  const [ruleKey, setRuleKey] = useState({});
+  const [ruleKeys, setRuleKeys] = useState({});
   const [showDrinkRules, setShowDrinkRules] = useState(false);
+  const [activeTab, setActiveTab] = useState("bracket");
 
   useEffect(() => {
-    localStorage.setItem(BRACKET_KEY, JSON.stringify(brackets));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     setSaveFlash(true);
     const t = setTimeout(() => setSaveFlash(false), 1200);
     return () => clearTimeout(t);
-  }, [brackets]);
+  }, [state]);
 
-  useEffect(() => {
-    localStorage.setItem(RULES_KEY, JSON.stringify(rules));
-  }, [rules]);
+  function setWinner(round, idx, winnerId) {
+    setState(prev => {
+      const s = JSON.parse(JSON.stringify(prev));
+      let match;
 
-  function setWinner(sportId, round, matchIdx, winnerId) {
-    setBrackets(prev => {
-      const b = JSON.parse(JSON.stringify(prev));
-      const match = b[sportId][round][matchIdx];
+      if (round === "r1") match = s.r1[idx];
+      else if (round === "r2") match = s.r2[idx];
+      else match = s.final;
+
+      // toggle off
       if (match.winner === winnerId) {
         match.winner = null;
+        // clear downstream
         if (round === "r1") {
-          b[sportId].r2[0].a = null;
-          b[sportId].r2[0].b = null;
-          b[sportId].r2[0].winner = null;
+          s.r2[0].a = null; s.r2[0].b = null; s.r2[0].winner = null; s.r2[0].sport = null;
+          s.r2[1].a = null; s.r2[1].b = null; s.r2[1].winner = null; s.r2[1].sport = null;
+          s.final.a = null; s.final.b = null; s.final.winner = null; s.final.sport = null;
         }
-        return b;
+        if (round === "r2") {
+          s.final.a = null; s.final.b = null; s.final.winner = null; s.final.sport = null;
+        }
+        return s;
       }
+
       match.winner = winnerId;
+
+      // After r1: seed r2 if both r1 done
       if (round === "r1") {
-        const w0 = b[sportId].r1[0].winner;
-        const w1 = b[sportId].r1[1].winner;
+        const w0 = s.r1[0].winner;
+        const w1 = s.r1[1].winner;
+        const l0 = w0 !== null ? (w0 === s.r1[0].a ? s.r1[0].b : s.r1[0].a) : null;
+        const l1 = w1 !== null ? (w1 === s.r1[1].a ? s.r1[1].b : s.r1[1].a) : null;
         if (w0 !== null && w1 !== null) {
-          b[sportId].r2[0].a = w0;
-          b[sportId].r2[0].b = w1;
-          b[sportId].r2[0].winner = null;
-        } else {
-          b[sportId].r2[0].a = null;
-          b[sportId].r2[0].b = null;
-          b[sportId].r2[0].winner = null;
+          s.r2[0].a = w0; s.r2[0].b = w1;
+          s.r2[0].sport = s.r2[0].sport || randomSport().id;
+          s.r2[0].winner = null;
+          s.r2[1].a = l0; s.r2[1].b = l1;
+          s.r2[1].sport = s.r2[1].sport || randomSport().id;
+          s.r2[1].winner = null;
         }
       }
-      return b;
+
+      // After r2: seed final if both r2 done
+      if (round === "r2") {
+        const w0 = s.r2[0].winner;
+        const w1 = s.r2[1].winner;
+        if (w0 !== null && w1 !== null) {
+          s.final.a = w0; s.final.b = w1;
+          s.final.sport = s.final.sport || randomSport().id;
+          s.final.winner = null;
+        }
+      }
+
+      return s;
     });
   }
 
-  function generateRule(sportId, round, matchIdx) {
-    const ruleId = sportId + "-" + round + "-" + matchIdx;
+  function generateRule(round, idx) {
+    const key = round + "-" + idx;
     const rule = randomRule();
-    setRules(prev => Object.assign({}, prev, { [ruleId]: rule }));
-    setRuleKey(prev => Object.assign({}, prev, { [ruleId]: (prev[ruleId] || 0) + 1 }));
+    setState(prev => {
+      const s = JSON.parse(JSON.stringify(prev));
+      if (round === "r1") s.r1[idx].rule = rule;
+      else if (round === "r2") s.r2[idx].rule = rule;
+      else s.final.rule = rule;
+      return s;
+    });
+    setRuleKeys(prev => Object.assign({}, prev, { [key]: (prev[key] || 0) + 1 }));
   }
 
   function resetAll() {
-    if (confirm("Reset the entire tournament with a new random draw?")) {
-      setBrackets(initBracket());
-      setRules(initRules());
-      setRuleKey({});
+    if (confirm("Reset the entire tournament?")) {
+      setState(initState());
+      setRuleKeys({});
     }
   }
 
-  const sport = SPORTS.find(s => s.id === activeSport);
-  const b = brackets[activeSport];
-  const finalsReady = b.r1[0].winner !== null && b.r1[1].winner !== null;
-  const champion = b.r2[0].winner !== null ? TEAMS[b.r2[0].winner] : null;
-  const allSportsDone = SPORTS.every(s => brackets[s.id].r2[0].winner !== null);
-  const medals = getMedals(brackets);
+  function drawFinalSport() {
+    setState(prev => {
+      const s = JSON.parse(JSON.stringify(prev));
+      s.final.sport = randomSport().id;
+      return s;
+    });
+  }
 
-  const medalStandings = TEAMS.map(t => ({
-    ...t,
-    gold: medals[t.id].gold,
-    silver: medals[t.id].silver,
-    bronze: medals[t.id].bronze,
-    total: medals[t.id].gold.length + medals[t.id].silver.length + medals[t.id].bronze.length,
-  })).sort((a, b) =>
-    b.gold.length - a.gold.length ||
-    b.silver.length - a.silver.length ||
-    b.bronze.length - a.bronze.length
-  );
+  const r1Done = state.r1[0].winner !== null && state.r1[1].winner !== null;
+  const r2Done = state.r2[0].winner !== null && state.r2[1].winner !== null;
+  const finalDone = state.final.winner !== null;
+  const champion = finalDone ? TEAMS[state.final.winner] : null;
+  const standings = getStandings(state);
 
-  function Matchup({ match, round, idx, color, locked }) {
+  function SportBadge({ sportId }) {
+    const s = SPORTS.find(x => x.id === sportId);
+    if (!s) return null;
+    return (
+      <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, background: s.color + "20", color: s.color, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}>
+        {s.icon} {s.name}
+      </span>
+    );
+  }
+
+  function MatchCard({ match, round, idx, locked, label }) {
     const teamA = match.a !== null ? TEAMS[match.a] : null;
     const teamB = match.b !== null ? TEAMS[match.b] : null;
     const isEmpty = !teamA || !teamB;
-    const ruleId = activeSport + "-" + round + "-" + idx;
-    const rule = rules[ruleId] || null;
-    const rk = ruleKey[ruleId] || 0;
+    const ruleKey = round + "-" + idx;
+    const rk = ruleKeys[ruleKey] || 0;
+    const sport = SPORTS.find(s => s.id === match.sport);
+    const color = sport ? sport.color : "#6b6b7a";
 
     return (
-      <div style={{ background: "#1a1a24", borderRadius: 12, overflow: "hidden", border: match.winner !== null ? "1px solid " + color + "50" : "1px solid #1e1e28", opacity: isEmpty ? 0.4 : 1 }}>
+      <div style={{ background: "#1a1a24", borderRadius: 14, overflow: "hidden", border: match.winner !== null ? "1px solid " + color + "50" : "1px solid #1e1e28", opacity: isEmpty ? 0.45 : 1 }}>
+        {/* Match header */}
+        <div style={{ padding: "10px 14px", background: "#14141e", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #12121a" }}>
+          <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a", fontWeight: 600 }}>{label}</span>
+          {sport ? <SportBadge sportId={match.sport} /> : <span style={{ fontSize: 11, color: "#3a3a4a" }}>Sport TBD</span>}
+        </div>
+
         {isEmpty && (
-          <div style={{ padding: "18px", textAlign: "center", color: "#6b6b7a", fontSize: 13 }}>
-            Waiting for Round 1 winners...
+          <div style={{ padding: "20px", textAlign: "center", color: "#6b6b7a", fontSize: 13 }}>
+            Waiting for previous round...
           </div>
         )}
+
         {!isEmpty && (
           <div>
             <div style={{ display: "flex", alignItems: "stretch" }}>
@@ -218,43 +248,32 @@ function App() {
                   <React.Fragment key={team.id}>
                     {ti === 1 && <div style={{ display: "flex", alignItems: "center", padding: "0 6px", color: "#2a2a3a", fontWeight: 800, fontSize: 10 }}>VS</div>}
                     <button
-                      onClick={() => { if (!locked) setWinner(activeSport, round, idx, team.id); }}
-                      style={{ flex: 1, padding: "14px 10px", background: isWinner ? color + "28" : "transparent", border: "none", cursor: locked ? "default" : "pointer", textAlign: "center", color: isWinner ? color : isLoser ? "#2e2e3e" : "#f0f0f5", transition: "all 0.2s" }}
+                      onClick={() => { if (!locked) setWinner(round, idx, team.id); }}
+                      style={{ flex: 1, padding: "16px 10px", background: isWinner ? color + "28" : "transparent", border: "none", cursor: locked ? "default" : "pointer", textAlign: "center", color: isWinner ? color : isLoser ? "#2e2e3e" : "#f0f0f5", transition: "all 0.2s" }}
                     >
-                      <div className="flag" style={{ filter: isLoser ? "grayscale(1) opacity(0.2)" : "none", transition: "filter 0.3s" }}>{team.flag}</div>
-                      <div style={{ fontWeight: 700, fontSize: 11, marginTop: 5 }}>{team.name}</div>
-                      <div style={{ fontSize: 10, opacity: 0.5, marginTop: 1 }}>{team.country}</div>
-                      {isWinner && <div style={{ fontSize: 10, color: color, marginTop: 4, fontWeight: 800 }}>WIN</div>}
+                      <div style={{ fontSize: 30, filter: isLoser ? "grayscale(1) opacity(0.2)" : "none", transition: "filter 0.3s" }}>{team.flag}</div>
+                      <div style={{ fontWeight: 700, fontSize: 12, marginTop: 6 }}>{team.name}</div>
+                      <div style={{ fontSize: 10, opacity: 0.45, marginTop: 2 }}>{team.country}</div>
+                      {isWinner && <div style={{ fontSize: 10, color: color, marginTop: 5, fontWeight: 800 }}>WIN</div>}
                     </button>
                   </React.Fragment>
                 );
               })}
             </div>
 
-            <div style={{ borderTop: "1px solid #12121a", padding: "12px 14px", background: "#14141e" }}>
-              {rule ? (
+            {/* Drink Rule */}
+            <div style={{ borderTop: "1px solid #12121a", padding: "12px 14px", background: "#0f0f13" }}>
+              {match.rule ? (
                 <div key={rk} className="pop">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a" }}>Drink Rule</span>
-                    <button
-                      onClick={() => generateRule(activeSport, round, idx)}
-                      style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: "1px solid #2a2a3a", background: "transparent", color: "#6b6b7a", cursor: "pointer" }}
-                    >
-                      Reroll
-                    </button>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a" }}>Drink Rule</span>
+                    <button onClick={() => generateRule(round, idx)} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: "1px solid #2a2a3a", background: "transparent", color: "#6b6b7a", cursor: "pointer" }}>Reroll</button>
                   </div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#f0f0f5", lineHeight: 1.4, marginBottom: 6 }}>
-                    {rule.trigger}
-                  </div>
-                  <div style={{ fontSize: 14, color: "#e2c97e", fontWeight: 600 }}>
-                    {"->"} {rule.consequence}
-                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#f0f0f5", marginBottom: 4, lineHeight: 1.3 }}>{match.rule.trigger}</div>
+                  <div style={{ fontSize: 13, color: "#e2c97e", fontWeight: 600 }}>{"->"} {match.rule.consequence}</div>
                 </div>
               ) : (
-                <button
-                  onClick={() => generateRule(activeSport, round, idx)}
-                  style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px dashed #2a2a3a", background: "transparent", color: "#6b6b7a", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
-                >
+                <button onClick={() => generateRule(round, idx)} style={{ width: "100%", padding: "9px", borderRadius: 8, border: "1px dashed #2a2a3a", background: "transparent", color: "#6b6b7a", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
                   Generate Drink Rule
                 </button>
               )}
@@ -266,140 +285,121 @@ function App() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0f0f13", color: "#f0f0f5", padding: "24px 16px" }}>
-      <div style={{ textAlign: "center", marginBottom: 24 }}>
-        <div style={{ fontSize: 12, letterSpacing: "0.15em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 6 }}>Game Night Tournament</div>
-        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800, letterSpacing: "-0.02em", background: "linear-gradient(90deg, #f59e0b, #10b981, #8b5cf6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-          The Bracket
+    <div style={{ minHeight: "100vh", background: "#0f0f13", color: "#f0f0f5", padding: "20px 16px" }}>
+
+      {/* Header */}
+      <div style={{ textAlign: "center", marginBottom: 20 }}>
+        <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 6 }}>Sedona Olympics 2026</div>
+        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900, letterSpacing: "-0.02em", background: "linear-gradient(90deg, #f59e0b, #8b5cf6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+          Cortney's 30th
         </h1>
-        <div style={{ marginTop: 6, fontSize: 11, color: saveFlash ? "#10b981" : "#2e2e3e", transition: "color 0.3s" }}>
-          {saveFlash ? "Saved" : "Auto-saves to this device"}
+        <div style={{ marginTop: 5, fontSize: 11, color: saveFlash ? "#10b981" : "#2e2e3e", transition: "color 0.3s" }}>
+          {saveFlash ? "Saved" : "Auto-saves"}
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, justifyContent: "center", flexWrap: "wrap" }}>
-        {SPORTS.map(s => {
-          const sb = brackets[s.id];
-          const done = sb.r1.concat(sb.r2).filter(m => m.winner !== null).length;
-          const isActive = s.id === activeSport;
-          const sportChamp = sb.r2[0].winner !== null;
-          return (
-            <button key={s.id} onClick={() => setActiveSport(s.id)} style={{ padding: "10px 14px", borderRadius: 10, border: isActive ? "2px solid " + s.color : "2px solid #1e1e28", background: isActive ? s.color + "18" : "#1a1a24", color: isActive ? s.color : "#6b6b7a", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: 90 }}>
-              <span style={{ fontSize: 20 }}>{sportChamp ? "\uD83C\uDFC6" : s.icon}</span>
-              <span>{s.name}</span>
-              <span style={{ fontSize: 10, opacity: 0.7 }}>{done}/3 games</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={{ maxWidth: 480, margin: "0 auto 20px" }}>
-        <button
-          onClick={() => setShowDrinkRules(!showDrinkRules)}
-          style={{ width: "100%", padding: "12px", borderRadius: 12, border: "1px solid #2a1a3a", background: showDrinkRules ? "#1a0a2a" : "#14141e", color: "#c084fc", cursor: "pointer", fontWeight: 700, fontSize: 13 }}
-        >
-          {showDrinkRules ? "Hide Party Rules" : "Show Party Drink Rules"}
-        </button>
-
-        {showDrinkRules && (
-          <div style={{ marginTop: 8, background: "#1a0a2a", borderRadius: 12, border: "1px solid #2a1a3a", overflow: "hidden" }}>
-            <div style={{ padding: "12px 16px", borderBottom: "1px solid #2a1a3a" }}>
-              <div style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#c084fc", marginBottom: 2 }}>Rules apply all night</div>
-              <div style={{ fontSize: 12, color: "#6b6b7a" }}>Any of these happen — everyone drinks</div>
-            </div>
-            {DRINK_RULES.map((r, i) => (
-              <div key={i} style={{ padding: "14px 16px", borderBottom: i < DRINK_RULES.length - 1 ? "1px solid #1e0e2e" : "none", display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <div style={{ fontSize: 18, minWidth: 28, textAlign: "center", marginTop: 1 }}>🍺</div>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#f0f0f5", lineHeight: 1.3, marginBottom: 3 }}>{r.trigger}</div>
-                  <div style={{ fontSize: 13, color: "#e2c97e", fontWeight: 600 }}>{"->"} {r.consequence}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, justifyContent: "center" }}>
+        {["bracket", "standings", "rules"].map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: "8px 18px", borderRadius: 8, border: activeTab === tab ? "2px solid #f59e0b" : "2px solid #1e1e28", background: activeTab === tab ? "#f59e0b18" : "#1a1a24", color: activeTab === tab ? "#f59e0b" : "#6b6b7a", cursor: "pointer", fontWeight: 700, fontSize: 12, textTransform: "capitalize" }}>
+            {tab === "bracket" ? "Bracket" : tab === "standings" ? "Standings" : "Drink Rules"}
+          </button>
+        ))}
       </div>
 
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
-        <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 10 }}>
-          {sport.icon} {sport.name} - Round 1
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-          {b.r1.map((match, i) => (
-            <Matchup key={i} match={match} round="r1" idx={i} color={sport.color} locked={false} />
-          ))}
-        </div>
 
-        <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: finalsReady ? sport.color : "#3a3a4a", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-          Final
-          {!finalsReady && <span style={{ fontSize: 10, color: "#3a3a4a" }}>- complete Round 1 first</span>}
-        </div>
-        <Matchup match={b.r2[0]} round="r2" idx={0} color={sport.color} locked={!finalsReady} />
+        {/* BRACKET TAB */}
+        {activeTab === "bracket" && (
+          <div>
+            {/* Round 1 */}
+            <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 10 }}>
+              Round 1 — Simultaneous
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+              <MatchCard match={state.r1[0]} round="r1" idx={0} locked={false} label="Match 1" />
+              <MatchCard match={state.r1[1]} round="r1" idx={1} locked={false} label="Match 2" />
+            </div>
 
-        {champion && (
-          <div style={{ marginTop: 20, padding: 20, borderRadius: 14, background: "linear-gradient(135deg, " + sport.color + "18, " + sport.color + "08)", border: "1px solid " + sport.color + "40", textAlign: "center" }}>
-            <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: sport.color, marginBottom: 8 }}>{sport.name} Champion</div>
-            <div style={{ fontSize: 40, marginBottom: 6 }}>{champion.flag}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: sport.color }}>{champion.name}</div>
-            <div style={{ fontSize: 12, color: "#6b6b7a", marginTop: 2 }}>{champion.country}</div>
+            {/* Round 2 */}
+            <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: r1Done ? "#f59e0b" : "#3a3a4a", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+              Round 2
+              {!r1Done && <span style={{ color: "#3a3a4a", fontSize: 10 }}>— finish Round 1 first</span>}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+              <MatchCard match={state.r2[0]} round="r2" idx={0} locked={!r1Done} label="Winners Match" />
+              <MatchCard match={state.r2[1]} round="r2" idx={1} locked={!r1Done} label="Losers Match" />
+            </div>
+
+            {/* Final */}
+            <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: r2Done ? "#8b5cf6" : "#3a3a4a", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+              Final
+              {!r2Done && <span style={{ color: "#3a3a4a", fontSize: 10 }}>— finish Round 2 first</span>}
+            </div>
+
+            {r2Done && !state.final.sport && (
+              <button onClick={drawFinalSport} style={{ width: "100%", padding: "14px", borderRadius: 12, border: "1px dashed #8b5cf6", background: "#8b5cf610", color: "#8b5cf6", cursor: "pointer", fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
+                Draw Final Sport
+              </button>
+            )}
+
+            <MatchCard match={state.final} round="final" idx={0} locked={!r2Done || !state.final.sport} label="Grand Final" />
+
+            {champion && (
+              <div style={{ marginTop: 24, padding: 24, borderRadius: 16, background: "linear-gradient(135deg, #f59e0b18, #8b5cf618)", border: "1px solid #f59e0b50", textAlign: "center" }}>
+                <div style={{ fontSize: 40, marginBottom: 6 }}>\uD83C\uDFC6</div>
+                <div style={{ fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 10 }}>Sedona Olympics Champion</div>
+                <div style={{ fontSize: 48, marginBottom: 6 }}>{champion.flag}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: "#f59e0b" }}>{champion.name}</div>
+                <div style={{ fontSize: 12, color: "#6b6b7a", marginTop: 2 }}>{champion.country}</div>
+              </div>
+            )}
           </div>
         )}
 
-        <div style={{ marginTop: 32 }}>
-          <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 12 }}>Live Medal Table</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {medalStandings.map((team, i) => {
-              const hasAny = team.total > 0;
-              return (
-                <div key={team.id} style={{ background: "#1a1a24", borderRadius: 12, padding: "14px 16px", border: i === 0 && hasAny ? "1px solid #f59e0b30" : "1px solid #1e1e28" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: hasAny ? 10 : 0 }}>
-                    <span style={{ fontSize: 24 }}>{team.flag}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 700, fontSize: 13 }}>{team.name}</div>
-                      <div style={{ fontSize: 10, color: "#6b6b7a" }}>{team.country}</div>
-                    </div>
-                    <div style={{ display: "flex", gap: 10 }}>
-                      {[{ medal: "\uD83E\uDD47", count: team.gold.length }, { medal: "\uD83E\uDD48", count: team.silver.length }, { medal: "\uD83E\uDD49", count: team.bronze.length }].map(function(item) {
-                        return (
-                          <div key={item.medal} style={{ textAlign: "center", minWidth: 28 }}>
-                            <div style={{ fontSize: 15 }}>{item.medal}</div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: item.count > 0 ? "#f0f0f5" : "#3a3a4a" }}>{item.count}</div>
-                          </div>
-                        );
-                      })}
-                      <div style={{ textAlign: "center", minWidth: 28, borderLeft: "1px solid #2a2a3a", paddingLeft: 10 }}>
-                        <div style={{ fontSize: 11, color: "#6b6b7a" }}>Total</div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: hasAny ? "#f0f0f5" : "#3a3a4a" }}>{team.total}</div>
-                      </div>
-                    </div>
+        {/* STANDINGS TAB */}
+        {activeTab === "standings" && (
+          <div>
+            <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 12 }}>Live Standings</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {standings.map((team, i) => (
+                <div key={team.id} style={{ background: "#1a1a24", borderRadius: 12, padding: "16px", display: "flex", alignItems: "center", gap: 12, border: i === 0 && team.wins > 0 ? "1px solid #f59e0b30" : "1px solid #1e1e28" }}>
+                  <span style={{ fontSize: 18, width: 24 }}>{i === 0 && team.wins > 0 ? "\uD83D\uDC51" : i === 1 ? "\uD83E\uDD48" : i === 2 ? "\uD83E\uDD49" : "\uD83D\uDCA9"}</span>
+                  <span style={{ fontSize: 28 }}>{team.flag}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{team.name}</div>
+                    <div style={{ fontSize: 11, color: "#6b6b7a" }}>{team.country}</div>
                   </div>
-                  {hasAny && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {team.gold.map(s => <span key={"g-" + s.id} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#f59e0b18", color: "#f59e0b", fontWeight: 600 }}>{"\uD83E\uDD47"} {s.name}</span>)}
-                      {team.silver.map(s => <span key={"s-" + s.id} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#94a3b818", color: "#94a3b8", fontWeight: 600 }}>{"\uD83E\uDD48"} {s.name}</span>)}
-                      {team.bronze.map(s => <span key={"b-" + s.id} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#cd7f3218", color: "#cd7f32", fontWeight: 600 }}>{"\uD83E\uDD49"} {s.name}</span>)}
-                    </div>
-                  )}
-                  {!hasAny && <div style={{ fontSize: 11, color: "#3a3a4a" }}>No medals yet</div>}
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: team.wins > 0 ? "#10b981" : "#3a3a4a" }}>{team.wins}</div>
+                    <div style={{ fontSize: 10, color: "#6b6b7a" }}>wins</div>
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {allSportsDone && (
-          <div style={{ marginTop: 28, padding: 24, borderRadius: 16, background: "linear-gradient(135deg, #f59e0b18, #8b5cf618)", border: "1px solid #f59e0b50", textAlign: "center" }}>
-            <div style={{ fontSize: 44, marginBottom: 6 }}>{"\uD83C\uDFC6"}</div>
-            <div style={{ fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 10 }}>Grand Champion</div>
-            <div style={{ fontSize: 48, marginBottom: 6 }}>{medalStandings[0].flag}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: "#f59e0b" }}>{medalStandings[0].name}</div>
-            <div style={{ fontSize: 12, color: "#6b6b7a", marginTop: 2, marginBottom: 8 }}>{medalStandings[0].country}</div>
-            <div style={{ fontSize: 13, color: "#6b6b7a" }}>{medalStandings[0].gold.length}{"\uD83E\uDD47"} {medalStandings[0].silver.length}{"\uD83E\uDD48"} {medalStandings[0].bronze.length}{"\uD83E\uDD49"}</div>
+              ))}
+            </div>
           </div>
         )}
 
-        <button onClick={resetAll} style={{ marginTop: 16, width: "100%", padding: "12px", borderRadius: 12, border: "1px solid #2a1a1a", background: "transparent", color: "#3a2a2a", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
-          Reset and Redraw
+        {/* DRINK RULES TAB */}
+        {activeTab === "rules" && (
+          <div>
+            <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 12 }}>Party Drink Rules</div>
+            <div style={{ background: "#1a0a2a", borderRadius: 12, border: "1px solid #2a1a3a", overflow: "hidden" }}>
+              {DRINK_RULES.map((r, i) => (
+                <div key={i} style={{ padding: "16px", borderBottom: i < DRINK_RULES.length - 1 ? "1px solid #1e0e2e" : "none", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{ fontSize: 20, minWidth: 28 }}>🍺</div>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#f0f0f5", marginBottom: 4, lineHeight: 1.3 }}>{r.trigger}</div>
+                    <div style={{ fontSize: 13, color: "#e2c97e", fontWeight: 600 }}>{"->"} {r.consequence}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button onClick={resetAll} style={{ marginTop: 24, width: "100%", padding: "12px", borderRadius: 12, border: "1px solid #2a1a1a", background: "transparent", color: "#3a2a2a", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
+          Reset Tournament
         </button>
         <div style={{ height: 40 }} />
       </div>
