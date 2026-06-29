@@ -30,34 +30,14 @@ const SPORTS = [
   { id: "pool", name: "Pool", icon: "🎱", color: "#8b5cf6" },
 ];
 
-const STORAGE_KEY = "sedona-rr-v1";
+const STORAGE_KEY = "sedona-custom-v1";
 
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+function emptyMatchup(id) {
+  return { id, a: null, b: null, sport: null, winner: null };
 }
 
-function initMatches() {
-  // All 6 pairs
-  const pairs = [];
-  for (let i = 0; i < TEAMS.length; i++)
-    for (let j = i + 1; j < TEAMS.length; j++)
-      pairs.push([TEAMS[i].id, TEAMS[j].id]);
-
-  // Randomly assign sports — try to balance 3 per sport
-  const sportIds = shuffle(["bp","bp","bp","pool","pool","pool"]);
-
-  return pairs.map(([a, b], i) => ({
-    id: i,
-    a,
-    b,
-    sport: sportIds[i],
-    winner: null,
-  }));
+function initSetup() {
+  return [0,1,2,3,4,5].map(i => emptyMatchup(i));
 }
 
 function loadState() {
@@ -67,45 +47,55 @@ function loadState() {
   } catch { return null; }
 }
 
-function getMedals(matches) {
-  // wins per team
+function getMedalTable(matches) {
   const wins = { 0: 0, 1: 0, 2: 0, 3: 0 };
   matches.forEach(m => { if (m.winner !== null) wins[m.winner]++; });
-
-  const sorted = TEAMS.map(t => ({ ...t, wins: wins[t.id] }))
-    .sort((a, b) => b.wins - a.wins);
-
-  // Assign gold/silver/bronze/nothing
-  // Ties share placement
-  const result = {};
-  sorted.forEach((t, i) => {
-    const medal = i === 0 ? "gold" : i === 1 ? "silver" : i === 2 ? "bronze" : "none";
-    // handle ties — same wins as previous = same medal
-    if (i > 0 && t.wins === sorted[i-1].wins) {
-      result[t.id] = result[sorted[i-1].id];
-    } else {
-      result[t.id] = medal;
-    }
-  });
-
-  return { wins, medals: result, sorted };
+  return TEAMS.map(t => ({ ...t, wins: wins[t.id] })).sort((a, b) => b.wins - a.wins);
 }
 
-const MEDAL_ICON = { gold: "🥇", silver: "🥈", bronze: "🥉", none: "" };
-const MEDAL_COLOR = { gold: "#f59e0b", silver: "#94a3b8", bronze: "#cd7f32", none: "#3a3a4a" };
+const MEDAL_ICON  = ["🥇","🥈","🥉",""];
+const MEDAL_COLOR = ["#f59e0b","#94a3b8","#cd7f32","#3a3a4a"];
 
 function App() {
-  const [matches, setMatches] = useState(() => loadState() || initMatches());
-  const [saveFlash, setSaveFlash] = useState(false);
+  const saved = loadState();
+  const [matches, setMatches] = useState(saved ? saved.matches : initSetup());
+  const [started, setStarted]   = useState(saved ? saved.started : false);
   const [activeTab, setActiveTab] = useState("matches");
+  const [saveFlash, setSaveFlash] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(matches));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ matches, started }));
     setSaveFlash(true);
     const t = setTimeout(() => setSaveFlash(false), 1200);
     return () => clearTimeout(t);
-  }, [matches]);
+  }, [matches, started]);
 
+  // ── Setup helpers ──
+  function setMatchTeam(id, slot, teamId) {
+    setMatches(prev => prev.map(m => {
+      if (m.id !== id) return m;
+      // prevent same team in both slots
+      if (slot === "a" && m.b === teamId) return m;
+      if (slot === "b" && m.a === teamId) return m;
+      return { ...m, [slot]: teamId };
+    }));
+  }
+
+  function setMatchSport(id, sportId) {
+    setMatches(prev => prev.map(m => m.id !== id ? m : { ...m, sport: sportId }));
+  }
+
+  function addMatchup() {
+    setMatches(prev => [...prev, emptyMatchup(prev.length)]);
+  }
+
+  function removeMatchup(id) {
+    setMatches(prev => prev.filter(m => m.id !== id));
+  }
+
+  const canStart = matches.length > 0 && matches.every(m => m.a !== null && m.b !== null && m.sport !== null);
+
+  // ── Game helpers ──
   function setWinner(matchId, winnerId) {
     setMatches(prev => prev.map(m => {
       if (m.id !== matchId) return m;
@@ -114,70 +104,89 @@ function App() {
   }
 
   function resetAll() {
-    if (confirm("Reset the entire tournament?")) setMatches(initMatches());
+    if (confirm("Reset everything?")) {
+      setMatches(initSetup());
+      setStarted(false);
+      setActiveTab("matches");
+    }
   }
 
   const completed = matches.filter(m => m.winner !== null).length;
-  const allDone = completed === matches.length;
-  const { wins, medals, sorted } = getMedals(matches);
+  const allDone = completed === matches.length && matches.length > 0;
+  const medalTable = getMedalTable(matches);
 
-  // Group matches by sport for display
-  const bpMatches = matches.filter(m => m.sport === "bp");
-  const poolMatches = matches.filter(m => m.sport === "pool");
-
-  function MatchCard({ match }) {
-    const teamA = TEAMS[match.a];
-    const teamB = TEAMS[match.b];
-    const sport = SPORTS.find(s => s.id === match.sport);
-    const color = sport.color;
-    const hasWinner = match.winner !== null;
-
+  // ── SETUP SCREEN ──
+  if (!started) {
     return (
-      <div style={{ background: "#1a1a24", borderRadius: 14, overflow: "hidden", border: hasWinner ? "1px solid " + color + "50" : "1px solid #1e1e28" }}>
-        <div style={{ padding: "8px 14px", background: "#14141e", borderBottom: "1px solid #12121a", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13 }}>{sport.icon}</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: color, letterSpacing: "0.08em", textTransform: "uppercase" }}>{sport.name}</span>
+      <div style={{ minHeight: "100vh", background: "#0f0f13", color: "#f0f0f5", padding: "24px 16px" }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 4 }}>Sedona Olympics 2026</div>
+          <h1 style={{ fontSize: 22, fontWeight: 900, background: "linear-gradient(90deg, #f59e0b, #8b5cf6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Build Your Schedule</h1>
+          <p style={{ marginTop: 8, fontSize: 13, color: "#6b6b7a" }}>Set up each matchup — teams and sport</p>
         </div>
-        <div style={{ display: "flex", alignItems: "stretch" }}>
-          {[teamA, teamB].map((team, ti) => {
-            const isWinner = match.winner === team.id;
-            const isLoser = hasWinner && !isWinner;
-            return (
-              <React.Fragment key={team.id}>
-                {ti === 1 && <div style={{ display: "flex", alignItems: "center", padding: "0 6px", color: "#2a2a3a", fontWeight: 800, fontSize: 10 }}>VS</div>}
-                <button
-                  onClick={() => setWinner(match.id, team.id)}
-                  style={{ flex: 1, padding: "16px 10px", background: isWinner ? color + "25" : "transparent", border: "none", cursor: "pointer", textAlign: "center", color: isWinner ? color : isLoser ? "#2e2e3e" : "#f0f0f5", transition: "all 0.2s" }}
-                >
-                  <div style={{ fontSize: 28, filter: isLoser ? "grayscale(1) opacity(0.2)" : "none", transition: "filter 0.3s" }}>{team.flag}</div>
-                  <div style={{ fontWeight: 700, fontSize: 12, marginTop: 6 }}>{team.name}</div>
-                  <div style={{ fontSize: 10, opacity: 0.4, marginTop: 2 }}>{team.country}</div>
-                  {isWinner && <div style={{ fontSize: 10, color: color, marginTop: 5, fontWeight: 800 }}>✓ WIN</div>}
-                </button>
-              </React.Fragment>
-            );
-          })}
+
+        <div style={{ maxWidth: 480, margin: "0 auto" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {matches.map((m, idx) => {
+              const sport = SPORTS.find(s => s.id === m.sport);
+              return (
+                <div key={m.id} style={{ background: "#1a1a24", borderRadius: 14, border: "1px solid #1e1e28", overflow: "hidden" }}>
+                  <div style={{ padding: "10px 14px", background: "#14141e", borderBottom: "1px solid #12121a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a", fontWeight: 700 }}>Game {idx + 1}</span>
+                    <button onClick={() => removeMatchup(m.id)} style={{ fontSize: 11, color: "#4a2a2a", background: "transparent", border: "none", cursor: "pointer" }}>Remove</button>
+                  </div>
+
+                  <div style={{ padding: "14px" }}>
+                    {/* Team selectors */}
+                    <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+                      <TeamPicker value={m.a} onChange={id => setMatchTeam(m.id, "a", id)} exclude={m.b} />
+                      <span style={{ color: "#3a3a4a", fontWeight: 800, fontSize: 12 }}>VS</span>
+                      <TeamPicker value={m.b} onChange={id => setMatchTeam(m.id, "b", id)} exclude={m.a} />
+                    </div>
+
+                    {/* Sport selector */}
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {SPORTS.map(s => (
+                        <button key={s.id} onClick={() => setMatchSport(m.id, s.id)}
+                          style={{ flex: 1, padding: "9px", borderRadius: 8, border: m.sport === s.id ? "2px solid " + s.color : "2px solid #2a2a3a", background: m.sport === s.id ? s.color + "20" : "transparent", color: m.sport === s.id ? s.color : "#6b6b7a", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>
+                          {s.icon} {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <button onClick={addMatchup} style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 12, border: "1px dashed #2a2a3a", background: "transparent", color: "#6b6b7a", cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
+            + Add Game
+          </button>
+
+          <button
+            onClick={() => canStart && setStarted(true)}
+            style={{ marginTop: 16, width: "100%", padding: "16px", borderRadius: 14, border: "none", background: canStart ? "linear-gradient(90deg, #f59e0b, #8b5cf6)" : "#1e1e28", color: canStart ? "#0f0f13" : "#3a3a4a", cursor: canStart ? "pointer" : "default", fontWeight: 900, fontSize: 16 }}>
+            {canStart ? "Start Tournament →" : "Fill in all games to continue"}
+          </button>
         </div>
       </div>
     );
   }
 
+  // ── GAME SCREEN ──
+  const bpMatches   = matches.filter(m => m.sport === "bp");
+  const poolMatches = matches.filter(m => m.sport === "pool");
+
   return (
     <div style={{ minHeight: "100vh", background: "#0f0f13", color: "#f0f0f5", padding: "20px 16px" }}>
-
-      {/* Header */}
       <div style={{ textAlign: "center", marginBottom: 20 }}>
         <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 4 }}>Sedona Olympics 2026</div>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, letterSpacing: "-0.02em", background: "linear-gradient(90deg, #f59e0b, #8b5cf6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-          Cortney's 30th
-        </h1>
+        <h1 style={{ fontSize: 22, fontWeight: 900, background: "linear-gradient(90deg, #f59e0b, #8b5cf6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Cortney's 30th</h1>
         <div style={{ marginTop: 8, fontSize: 12, color: "#6b6b7a" }}>{completed}/{matches.length} games done</div>
         <div style={{ width: "100%", maxWidth: 300, height: 3, background: "#1e1e28", borderRadius: 2, margin: "6px auto 0" }}>
-          <div style={{ height: "100%", width: (completed / matches.length * 100) + "%", background: "linear-gradient(90deg, #f59e0b, #8b5cf6)", borderRadius: 2, transition: "width 0.4s ease" }} />
+          <div style={{ height: "100%", width: (completed / matches.length * 100) + "%", background: "linear-gradient(90deg, #f59e0b, #8b5cf6)", borderRadius: 2, transition: "width 0.4s" }} />
         </div>
-        <div style={{ marginTop: 5, fontSize: 10, color: saveFlash ? "#10b981" : "#2e2e3e", transition: "color 0.3s" }}>
-          {saveFlash ? "✓ Saved" : "Auto-saves"}
-        </div>
+        <div style={{ marginTop: 5, fontSize: 10, color: saveFlash ? "#10b981" : "#2e2e3e", transition: "color 0.3s" }}>{saveFlash ? "✓ Saved" : "Auto-saves"}</div>
       </div>
 
       {/* Tabs */}
@@ -191,49 +200,53 @@ function App() {
 
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
 
-        {/* MATCHES TAB */}
         {activeTab === "matches" && (
           <div>
-            {/* Beer Pong */}
-            <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#f59e0b", marginBottom: 10 }}>
-              🏓 Beer Pong — {bpMatches.filter(m=>m.winner!==null).length}/{bpMatches.length} done
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
-              {bpMatches.map(m => <MatchCard key={m.id} match={m} />)}
-            </div>
-
-            {/* Pool */}
-            <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#8b5cf6", marginBottom: 10 }}>
-              🎱 Pool — {poolMatches.filter(m=>m.winner!==null).length}/{poolMatches.length} done
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {poolMatches.map(m => <MatchCard key={m.id} match={m} />)}
-            </div>
+            {bpMatches.length > 0 && (
+              <>
+                <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#f59e0b", marginBottom: 10 }}>
+                  🏓 Beer Pong — {bpMatches.filter(m=>m.winner!==null).length}/{bpMatches.length} done
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+                  {bpMatches.map(m => <MatchCard key={m.id} match={m} onSetWinner={setWinner} />)}
+                </div>
+              </>
+            )}
+            {poolMatches.length > 0 && (
+              <>
+                <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#8b5cf6", marginBottom: 10 }}>
+                  🎱 Pool — {poolMatches.filter(m=>m.winner!==null).length}/{poolMatches.length} done
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {poolMatches.map(m => <MatchCard key={m.id} match={m} onSetWinner={setWinner} />)}
+                </div>
+              </>
+            )}
           </div>
         )}
 
-        {/* MEDAL TABLE TAB */}
         {activeTab === "medals" && (
           <div>
             <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 12 }}>
               {allDone ? "Final Medal Table" : "Live Medal Table"}
             </div>
-
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {sorted.map((team, i) => {
-                const medal = medals[team.id];
-                const mIcon = MEDAL_ICON[medal];
-                const mColor = MEDAL_COLOR[medal];
+              {medalTable.map((team, i) => {
+                // find rank accounting for ties
+                let rank = i;
+                if (i > 0 && team.wins === medalTable[i-1].wins) rank = medalTable.indexOf(medalTable.find((t,j) => j < i && t.wins === team.wins));
+                const mIcon  = MEDAL_ICON[Math.min(rank, 3)];
+                const mColor = MEDAL_COLOR[Math.min(rank, 3)];
                 return (
-                  <div key={team.id} style={{ background: "#1a1a24", borderRadius: 14, padding: "18px 16px", border: medal === "gold" ? "1px solid #f59e0b40" : "1px solid #1e1e28", display: "flex", alignItems: "center", gap: 14 }}>
-                    <div style={{ fontSize: 28, width: 36, textAlign: "center" }}>{mIcon || (i + 1)}</div>
+                  <div key={team.id} style={{ background: "#1a1a24", borderRadius: 14, padding: "18px 16px", border: rank === 0 ? "1px solid #f59e0b40" : "1px solid #1e1e28", display: "flex", alignItems: "center", gap: 14 }}>
+                    <div style={{ fontSize: 26, width: 32, textAlign: "center" }}>{mIcon}</div>
                     <div style={{ fontSize: 32 }}>{team.flag}</div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 800, fontSize: 14 }}>{team.name}</div>
                       <div style={{ fontSize: 11, color: "#6b6b7a", marginTop: 2 }}>{team.country}</div>
                     </div>
                     <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: 26, fontWeight: 900, color: team.wins > 0 ? mColor : "#3a3a4a" }}>{team.wins}</div>
+                      <div style={{ fontSize: 28, fontWeight: 900, color: team.wins > 0 ? mColor : "#3a3a4a" }}>{team.wins}</div>
                       <div style={{ fontSize: 10, color: "#6b6b7a" }}>wins</div>
                     </div>
                   </div>
@@ -242,21 +255,78 @@ function App() {
             </div>
 
             {allDone && (
-              <div style={{ marginTop: 28, padding: 28, borderRadius: 16, background: "linear-gradient(135deg, #f59e0b18, #8b5cf618)", border: "1px solid #f59e0b50", textAlign: "center" }}>
+              <div style={{ marginTop: 24, padding: 28, borderRadius: 16, background: "linear-gradient(135deg, #f59e0b18, #8b5cf618)", border: "1px solid #f59e0b50", textAlign: "center" }}>
                 <div style={{ fontSize: 44, marginBottom: 8 }}>🏆</div>
                 <div style={{ fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 10 }}>Sedona Olympics Champion</div>
-                <div style={{ fontSize: 52, marginBottom: 8 }}>{sorted[0].flag}</div>
-                <div style={{ fontSize: 24, fontWeight: 900, color: "#f59e0b" }}>{sorted[0].name}</div>
-                <div style={{ fontSize: 13, color: "#6b6b7a", marginTop: 4 }}>{sorted[0].country} · {sorted[0].wins} wins</div>
+                <div style={{ fontSize: 52, marginBottom: 8 }}>{medalTable[0].flag}</div>
+                <div style={{ fontSize: 24, fontWeight: 900, color: "#f59e0b" }}>{medalTable[0].name}</div>
+                <div style={{ fontSize: 13, color: "#6b6b7a", marginTop: 4 }}>{medalTable[0].country} · {medalTable[0].wins} wins</div>
               </div>
             )}
           </div>
         )}
 
-        <button onClick={resetAll} style={{ marginTop: 24, width: "100%", padding: "12px", borderRadius: 12, border: "1px solid #2a1a1a", background: "transparent", color: "#3a2a2a", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
-          Reset Tournament
-        </button>
+        <div style={{ marginTop: 24, display: "flex", gap: 8 }}>
+          <button onClick={() => { if(confirm("Go back to setup? Results will be cleared.")) { setMatches(initSetup()); setStarted(false); }}} style={{ flex: 1, padding: "11px", borderRadius: 10, border: "1px solid #2a2a3a", background: "transparent", color: "#4a4a5a", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
+            Edit Schedule
+          </button>
+          <button onClick={resetAll} style={{ flex: 1, padding: "11px", borderRadius: 10, border: "1px solid #2a1a1a", background: "transparent", color: "#3a2a2a", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
+            Reset All
+          </button>
+        </div>
         <div style={{ height: 40 }} />
+      </div>
+    </div>
+  );
+}
+
+function TeamPicker({ value, onChange, exclude }) {
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+      {TEAMS.map(t => {
+        const isSelected = value === t.id;
+        const isDisabled = exclude === t.id;
+        return (
+          <button key={t.id} onClick={() => !isDisabled && onChange(t.id)}
+            style={{ padding: "8px 6px", borderRadius: 8, border: isSelected ? "2px solid #f59e0b" : "2px solid #2a2a3a", background: isSelected ? "#f59e0b18" : "transparent", color: isSelected ? "#f59e0b" : isDisabled ? "#2a2a3a" : "#f0f0f5", cursor: isDisabled ? "default" : "pointer", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 6, textAlign: "left" }}>
+            <span style={{ fontSize: 18 }}>{t.flag}</span>
+            <span style={{ fontSize: 11, lineHeight: 1.2 }}>{t.name}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function MatchCard({ match, onSetWinner }) {
+  const teamA = TEAMS[match.a];
+  const teamB = TEAMS[match.b];
+  const sport = SPORTS.find(s => s.id === match.sport);
+  const color = sport.color;
+  const hasWinner = match.winner !== null;
+
+  return (
+    <div style={{ background: "#1a1a24", borderRadius: 14, overflow: "hidden", border: hasWinner ? "1px solid " + color + "50" : "1px solid #1e1e28" }}>
+      <div style={{ padding: "8px 14px", background: "#14141e", borderBottom: "1px solid #12121a" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: color }}>{sport.icon} {sport.name}</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "stretch" }}>
+        {[teamA, teamB].map((team, ti) => {
+          const isWinner = match.winner === team.id;
+          const isLoser  = hasWinner && !isWinner;
+          return (
+            <React.Fragment key={team.id}>
+              {ti === 1 && <div style={{ display: "flex", alignItems: "center", padding: "0 6px", color: "#2a2a3a", fontWeight: 800, fontSize: 10 }}>VS</div>}
+              <button onClick={() => onSetWinner(match.id, team.id)}
+                style={{ flex: 1, padding: "16px 10px", background: isWinner ? color + "25" : "transparent", border: "none", cursor: "pointer", textAlign: "center", color: isWinner ? color : isLoser ? "#2e2e3e" : "#f0f0f5", transition: "all 0.2s" }}>
+                <div style={{ fontSize: 28, filter: isLoser ? "grayscale(1) opacity(0.2)" : "none", transition: "filter 0.3s" }}>{team.flag}</div>
+                <div style={{ fontWeight: 700, fontSize: 12, marginTop: 6 }}>{team.name}</div>
+                <div style={{ fontSize: 10, opacity: 0.4, marginTop: 2 }}>{team.country}</div>
+                {isWinner && <div style={{ fontSize: 10, color: color, marginTop: 5, fontWeight: 800 }}>✓ WIN</div>}
+              </button>
+            </React.Fragment>
+          );
+        })}
       </div>
     </div>
   );
