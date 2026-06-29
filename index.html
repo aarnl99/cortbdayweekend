@@ -26,30 +26,30 @@
 const { useState, useEffect } = React;
 
 const TEAMS = [
-  { id: 0, name: "Aaron & Josh", country: "United States", flag: "🇺🇸" },
-  { id: 1, name: "MJ & Nick", country: "Canada", flag: "🇨🇦" },
-  { id: 2, name: "Ashlyn & Sandra", country: "Philippines", flag: "🇵🇭" },
-  { id: 3, name: "Cortney & Anthony", country: "Malta", flag: "🇲🇹" },
+  { id: 0, name: "Aaron & Josh", country: "United States", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
+  { id: 1, name: "MJ & Nick", country: "Canada", flag: "\uD83C\uDDE8\uD83C\uDDE6" },
+  { id: 2, name: "Ashlyn & Sandra", country: "Philippines", flag: "\uD83C\uDDF5\uD83C\uDDED" },
+  { id: 3, name: "Cortney & Anthony", country: "Malta", flag: "\uD83C\uDDF2\uD83C\uDDF9" },
 ];
 
 const SPORTS = [
-  { id: "bp", name: "Beer Pong", icon: "🏓", color: "#f59e0b" },
-  { id: "ch", name: "Cornhole", icon: "🌽", color: "#10b981" },
-  { id: "pool", name: "Pool", icon: "🎱", color: "#8b5cf6" },
+  { id: "bp", name: "Beer Pong", icon: "\uD83C\uDFD3", color: "#f59e0b" },
+  { id: "ch", name: "Cornhole", icon: "\uD83C\uDF3D", color: "#10b981" },
+  { id: "pool", name: "Pool", icon: "\uD83C\uDFB1", color: "#8b5cf6" },
 ];
 
 const DRINK_RULES = [
-  { trigger: "Someone says "that's a dollar"", consequence: "Everyone drinks 🍺" },
-  { trigger: "Someone says "100p"", consequence: "Everyone drinks 🍺" },
-  { trigger: "Someone says "period"", consequence: "Everyone drinks 🍺" },
-  { trigger: "Nick disappears", consequence: "Everyone drinks 🍺" },
-  { trigger: "Sandra takes a pic", consequence: "Everyone drinks 📸" },
-  { trigger: "Cortney or Sandra vapes", consequence: "Everyone drinks 💨" },
-  { trigger: "Aaron says something mean", consequence: "Everyone drinks 😈" },
+  { trigger: "Anyone says \"that's a dollar\"", consequence: "Everyone drinks" },
+  { trigger: "Anyone says \"100p\"", consequence: "Everyone drinks" },
+  { trigger: "Anyone says \"period\"", consequence: "Everyone drinks" },
+  { trigger: "Nick disappears", consequence: "Everyone drinks" },
+  { trigger: "Sandra takes a pic", consequence: "Everyone drinks \uD83D\uDCF8" },
+  { trigger: "Cortney or Sandra vapes", consequence: "Everyone drinks \uD83D\uDCA8" },
+  { trigger: "Aaron says something mean", consequence: "Everyone drinks \uD83D\uDE08" },
 ];
 
-const BRACKET_KEY = "bracket-v7-bracket";
-const RULES_KEY   = "bracket-v7-rules";
+const BRACKET_KEY = "bracket-v8-bracket";
+const RULES_KEY   = "bracket-v8-rules";
 
 function shuffle(arr) {
   const a = [...arr];
@@ -160,10 +160,10 @@ function App() {
   }
 
   function generateRule(sportId, round, matchIdx) {
-    const ruleId = `${sportId}-${round}-${matchIdx}`;
+    const ruleId = sportId + "-" + round + "-" + matchIdx;
     const rule = randomRule();
-    setRules(prev => ({ ...prev, [ruleId]: rule }));
-    setRuleKey(prev => ({ ...prev, [ruleId]: (prev[ruleId] || 0) + 1 }));
+    setRules(prev => Object.assign({}, prev, { [ruleId]: rule }));
+    setRuleKey(prev => Object.assign({}, prev, { [ruleId]: (prev[ruleId] || 0) + 1 }));
   }
 
   function resetAll() {
@@ -197,19 +197,19 @@ function App() {
     const teamA = match.a !== null ? TEAMS[match.a] : null;
     const teamB = match.b !== null ? TEAMS[match.b] : null;
     const isEmpty = !teamA || !teamB;
-    const ruleId = `${activeSport}-${round}-${idx}`;
+    const ruleId = activeSport + "-" + round + "-" + idx;
     const rule = rules[ruleId] || null;
     const rk = ruleKey[ruleId] || 0;
 
     return (
-      <div style={{ background: "#1a1a24", borderRadius: 12, overflow: "hidden", border: match.winner !== null ? `1px solid ${color}50` : "1px solid #1e1e28", opacity: isEmpty ? 0.4 : 1 }}>
+      <div style={{ background: "#1a1a24", borderRadius: 12, overflow: "hidden", border: match.winner !== null ? "1px solid " + color + "50" : "1px solid #1e1e28", opacity: isEmpty ? 0.4 : 1 }}>
         {isEmpty && (
           <div style={{ padding: "18px", textAlign: "center", color: "#6b6b7a", fontSize: 13 }}>
-            Waiting for Round 1 winners…
+            Waiting for Round 1 winners...
           </div>
         )}
         {!isEmpty && (
-          <>
+          <div>
             <div style={{ display: "flex", alignItems: "stretch" }}>
               {[teamA, teamB].map((team, ti) => {
                 const isWinner = match.winner === team.id;
@@ -218,49 +218,48 @@ function App() {
                   <React.Fragment key={team.id}>
                     {ti === 1 && <div style={{ display: "flex", alignItems: "center", padding: "0 6px", color: "#2a2a3a", fontWeight: 800, fontSize: 10 }}>VS</div>}
                     <button
-                      onClick={() => !locked && setWinner(activeSport, round, idx, team.id)}
-                      style={{ flex: 1, padding: "14px 10px", background: isWinner ? `${color}28` : "transparent", border: "none", cursor: locked ? "default" : "pointer", textAlign: "center", color: isWinner ? color : isLoser ? "#2e2e3e" : "#f0f0f5", transition: "all 0.2s" }}
+                      onClick={() => { if (!locked) setWinner(activeSport, round, idx, team.id); }}
+                      style={{ flex: 1, padding: "14px 10px", background: isWinner ? color + "28" : "transparent", border: "none", cursor: locked ? "default" : "pointer", textAlign: "center", color: isWinner ? color : isLoser ? "#2e2e3e" : "#f0f0f5", transition: "all 0.2s" }}
                     >
                       <div className="flag" style={{ filter: isLoser ? "grayscale(1) opacity(0.2)" : "none", transition: "filter 0.3s" }}>{team.flag}</div>
                       <div style={{ fontWeight: 700, fontSize: 11, marginTop: 5 }}>{team.name}</div>
                       <div style={{ fontSize: 10, opacity: 0.5, marginTop: 1 }}>{team.country}</div>
-                      {isWinner && <div style={{ fontSize: 10, color, marginTop: 4, fontWeight: 800 }}>✓ WIN</div>}
+                      {isWinner && <div style={{ fontSize: 10, color: color, marginTop: 4, fontWeight: 800 }}>WIN</div>}
                     </button>
                   </React.Fragment>
                 );
               })}
             </div>
 
-            {/* Drink Rule */}
             <div style={{ borderTop: "1px solid #12121a", padding: "12px 14px", background: "#14141e" }}>
               {rule ? (
                 <div key={rk} className="pop">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a" }}>🎲 Drink Rule</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a" }}>Drink Rule</span>
                     <button
                       onClick={() => generateRule(activeSport, round, idx)}
-                      style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: "1px solid #2a2a3a", background: "transparent", color: "#6b6b7a", cursor: "pointer", whiteSpace: "nowrap" }}
+                      style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: "1px solid #2a2a3a", background: "transparent", color: "#6b6b7a", cursor: "pointer" }}
                     >
-                      🔄 Reroll
+                      Reroll
                     </button>
                   </div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#f0f0f5", lineHeight: 1.4, marginBottom: 4 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#f0f0f5", lineHeight: 1.4, marginBottom: 6 }}>
                     {rule.trigger}
                   </div>
                   <div style={{ fontSize: 14, color: "#e2c97e", fontWeight: 600 }}>
-                    → {rule.consequence}
+                    {"->"} {rule.consequence}
                   </div>
                 </div>
               ) : (
                 <button
                   onClick={() => generateRule(activeSport, round, idx)}
-                  style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px dashed #2a2a3a", background: "transparent", color: "#6b6b7a", cursor: "pointer", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  style={{ width: "100%", padding: "10px", borderRadius: 8, border: "1px dashed #2a2a3a", background: "transparent", color: "#6b6b7a", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
                 >
-                  🎲 Generate Drink Rule
+                  Generate Drink Rule
                 </button>
               )}
             </div>
-          </>
+          </div>
         )}
       </div>
     );
@@ -271,23 +270,22 @@ function App() {
       <div style={{ textAlign: "center", marginBottom: 24 }}>
         <div style={{ fontSize: 12, letterSpacing: "0.15em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 6 }}>Game Night Tournament</div>
         <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800, letterSpacing: "-0.02em", background: "linear-gradient(90deg, #f59e0b, #10b981, #8b5cf6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-          🏆 The Bracket
+          The Bracket
         </h1>
         <div style={{ marginTop: 6, fontSize: 11, color: saveFlash ? "#10b981" : "#2e2e3e", transition: "color 0.3s" }}>
-          {saveFlash ? "✓ Saved" : "Auto-saves to this device"}
+          {saveFlash ? "Saved" : "Auto-saves to this device"}
         </div>
       </div>
 
-      {/* Sport Tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, justifyContent: "center", flexWrap: "wrap" }}>
         {SPORTS.map(s => {
           const sb = brackets[s.id];
-          const done = [...sb.r1, ...sb.r2].filter(m => m.winner !== null).length;
+          const done = sb.r1.concat(sb.r2).filter(m => m.winner !== null).length;
           const isActive = s.id === activeSport;
           const sportChamp = sb.r2[0].winner !== null;
           return (
-            <button key={s.id} onClick={() => setActiveSport(s.id)} style={{ padding: "10px 14px", borderRadius: 10, border: isActive ? `2px solid ${s.color}` : "2px solid #1e1e28", background: isActive ? `${s.color}18` : "#1a1a24", color: isActive ? s.color : "#6b6b7a", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: 90 }}>
-              <span style={{ fontSize: 20 }}>{sportChamp ? "🏆" : s.icon}</span>
+            <button key={s.id} onClick={() => setActiveSport(s.id)} style={{ padding: "10px 14px", borderRadius: 10, border: isActive ? "2px solid " + s.color : "2px solid #1e1e28", background: isActive ? s.color + "18" : "#1a1a24", color: isActive ? s.color : "#6b6b7a", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: 90 }}>
+              <span style={{ fontSize: 20 }}>{sportChamp ? "\uD83C\uDFC6" : s.icon}</span>
               <span>{s.name}</span>
               <span style={{ fontSize: 10, opacity: 0.7 }}>{done}/3 games</span>
             </button>
@@ -295,27 +293,26 @@ function App() {
         })}
       </div>
 
-      {/* Party Rules Button */}
       <div style={{ maxWidth: 480, margin: "0 auto 20px" }}>
         <button
           onClick={() => setShowDrinkRules(!showDrinkRules)}
-          style={{ width: "100%", padding: "12px", borderRadius: 12, border: "1px solid #2a1a3a", background: showDrinkRules ? "#1a0a2a" : "#14141e", color: "#c084fc", cursor: "pointer", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+          style={{ width: "100%", padding: "12px", borderRadius: 12, border: "1px solid #2a1a3a", background: showDrinkRules ? "#1a0a2a" : "#14141e", color: "#c084fc", cursor: "pointer", fontWeight: 700, fontSize: 13 }}
         >
-          🍺 {showDrinkRules ? "Hide" : "Show"} Party Drink Rules
+          {showDrinkRules ? "Hide Party Rules" : "Show Party Drink Rules"}
         </button>
 
         {showDrinkRules && (
           <div style={{ marginTop: 8, background: "#1a0a2a", borderRadius: 12, border: "1px solid #2a1a3a", overflow: "hidden" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #2a1a3a" }}>
               <div style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#c084fc", marginBottom: 2 }}>Rules apply all night</div>
-              <div style={{ fontSize: 12, color: "#6b6b7a" }}>Whenever any of these happen — everyone drinks</div>
+              <div style={{ fontSize: 12, color: "#6b6b7a" }}>Any of these happen — everyone drinks</div>
             </div>
             {DRINK_RULES.map((r, i) => (
               <div key={i} style={{ padding: "14px 16px", borderBottom: i < DRINK_RULES.length - 1 ? "1px solid #1e0e2e" : "none", display: "flex", gap: 12, alignItems: "flex-start" }}>
                 <div style={{ fontSize: 18, minWidth: 28, textAlign: "center", marginTop: 1 }}>🍺</div>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: "#f0f0f5", lineHeight: 1.3, marginBottom: 3 }}>{r.trigger}</div>
-                  <div style={{ fontSize: 13, color: "#e2c97e", fontWeight: 600 }}>→ {r.consequence}</div>
+                  <div style={{ fontSize: 13, color: "#e2c97e", fontWeight: 600 }}>{"->"} {r.consequence}</div>
                 </div>
               </div>
             ))}
@@ -325,7 +322,7 @@ function App() {
 
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
         <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 10 }}>
-          {sport.icon} {sport.name} — Round 1
+          {sport.icon} {sport.name} - Round 1
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
           {b.r1.map((match, i) => (
@@ -334,23 +331,22 @@ function App() {
         </div>
 
         <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: finalsReady ? sport.color : "#3a3a4a", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-          🏁 {sport.name} Final
-          {!finalsReady && <span style={{ fontSize: 10, color: "#3a3a4a" }}>— complete Round 1 first</span>}
+          Final
+          {!finalsReady && <span style={{ fontSize: 10, color: "#3a3a4a" }}>- complete Round 1 first</span>}
         </div>
         <Matchup match={b.r2[0]} round="r2" idx={0} color={sport.color} locked={!finalsReady} />
 
         {champion && (
-          <div style={{ marginTop: 20, padding: 20, borderRadius: 14, background: `linear-gradient(135deg, ${sport.color}18, ${sport.color}08)`, border: `1px solid ${sport.color}40`, textAlign: "center" }}>
-            <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: sport.color, marginBottom: 8 }}>{sport.icon} {sport.name} Champion</div>
+          <div style={{ marginTop: 20, padding: 20, borderRadius: 14, background: "linear-gradient(135deg, " + sport.color + "18, " + sport.color + "08)", border: "1px solid " + sport.color + "40", textAlign: "center" }}>
+            <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: sport.color, marginBottom: 8 }}>{sport.name} Champion</div>
             <div style={{ fontSize: 40, marginBottom: 6 }}>{champion.flag}</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: sport.color }}>{champion.name}</div>
             <div style={{ fontSize: 12, color: "#6b6b7a", marginTop: 2 }}>{champion.country}</div>
           </div>
         )}
 
-        {/* Medal Table */}
         <div style={{ marginTop: 32 }}>
-          <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 12 }}>🏅 Live Medal Table</div>
+          <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 12 }}>Live Medal Table</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {medalStandings.map((team, i) => {
               const hasAny = team.total > 0;
@@ -363,12 +359,14 @@ function App() {
                       <div style={{ fontSize: 10, color: "#6b6b7a" }}>{team.country}</div>
                     </div>
                     <div style={{ display: "flex", gap: 10 }}>
-                      {[{ medal: "🥇", count: team.gold.length }, { medal: "🥈", count: team.silver.length }, { medal: "🥉", count: team.bronze.length }].map(({ medal, count }) => (
-                        <div key={medal} style={{ textAlign: "center", minWidth: 28 }}>
-                          <div style={{ fontSize: 15 }}>{medal}</div>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: count > 0 ? "#f0f0f5" : "#3a3a4a" }}>{count}</div>
-                        </div>
-                      ))}
+                      {[{ medal: "\uD83E\uDD47", count: team.gold.length }, { medal: "\uD83E\uDD48", count: team.silver.length }, { medal: "\uD83E\uDD49", count: team.bronze.length }].map(function(item) {
+                        return (
+                          <div key={item.medal} style={{ textAlign: "center", minWidth: 28 }}>
+                            <div style={{ fontSize: 15 }}>{item.medal}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: item.count > 0 ? "#f0f0f5" : "#3a3a4a" }}>{item.count}</div>
+                          </div>
+                        );
+                      })}
                       <div style={{ textAlign: "center", minWidth: 28, borderLeft: "1px solid #2a2a3a", paddingLeft: 10 }}>
                         <div style={{ fontSize: 11, color: "#6b6b7a" }}>Total</div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: hasAny ? "#f0f0f5" : "#3a3a4a" }}>{team.total}</div>
@@ -377,9 +375,9 @@ function App() {
                   </div>
                   {hasAny && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {team.gold.map(s => <span key={`g-${s.id}`} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#f59e0b18", color: "#f59e0b", fontWeight: 600 }}>🥇 {s.icon} {s.name}</span>)}
-                      {team.silver.map(s => <span key={`s-${s.id}`} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#94a3b818", color: "#94a3b8", fontWeight: 600 }}>🥈 {s.icon} {s.name}</span>)}
-                      {team.bronze.map(s => <span key={`b-${s.id}`} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#cd7f3218", color: "#cd7f32", fontWeight: 600 }}>🥉 {s.icon} {s.name}</span>)}
+                      {team.gold.map(s => <span key={"g-" + s.id} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#f59e0b18", color: "#f59e0b", fontWeight: 600 }}>{"\uD83E\uDD47"} {s.name}</span>)}
+                      {team.silver.map(s => <span key={"s-" + s.id} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#94a3b818", color: "#94a3b8", fontWeight: 600 }}>{"\uD83E\uDD48"} {s.name}</span>)}
+                      {team.bronze.map(s => <span key={"b-" + s.id} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#cd7f3218", color: "#cd7f32", fontWeight: 600 }}>{"\uD83E\uDD49"} {s.name}</span>)}
                     </div>
                   )}
                   {!hasAny && <div style={{ fontSize: 11, color: "#3a3a4a" }}>No medals yet</div>}
@@ -391,17 +389,17 @@ function App() {
 
         {allSportsDone && (
           <div style={{ marginTop: 28, padding: 24, borderRadius: 16, background: "linear-gradient(135deg, #f59e0b18, #8b5cf618)", border: "1px solid #f59e0b50", textAlign: "center" }}>
-            <div style={{ fontSize: 44, marginBottom: 6 }}>🏆</div>
+            <div style={{ fontSize: 44, marginBottom: 6 }}>{"\uD83C\uDFC6"}</div>
             <div style={{ fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 10 }}>Grand Champion</div>
             <div style={{ fontSize: 48, marginBottom: 6 }}>{medalStandings[0].flag}</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: "#f59e0b" }}>{medalStandings[0].name}</div>
             <div style={{ fontSize: 12, color: "#6b6b7a", marginTop: 2, marginBottom: 8 }}>{medalStandings[0].country}</div>
-            <div style={{ fontSize: 13, color: "#6b6b7a" }}>{medalStandings[0].gold.length}🥇 · {medalStandings[0].silver.length}🥈 · {medalStandings[0].bronze.length}🥉</div>
+            <div style={{ fontSize: 13, color: "#6b6b7a" }}>{medalStandings[0].gold.length}{"\uD83E\uDD47"} {medalStandings[0].silver.length}{"\uD83E\uDD48"} {medalStandings[0].bronze.length}{"\uD83E\uDD49"}</div>
           </div>
         )}
 
         <button onClick={resetAll} style={{ marginTop: 16, width: "100%", padding: "12px", borderRadius: 12, border: "1px solid #2a1a1a", background: "transparent", color: "#3a2a2a", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
-          Reset & Redraw
+          Reset and Redraw
         </button>
         <div style={{ height: 40 }} />
       </div>
