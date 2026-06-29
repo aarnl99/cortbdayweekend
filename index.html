@@ -35,7 +35,7 @@ const SPORTS = [
   { id: "pool", name: "Pool",      icon: "🎱", color: "#8b5cf6" },
 ];
 
-const STORAGE_KEY = "sedona-live-v1";
+const STORAGE_KEY = "sedona-live-v2";
 
 function newGame(id) {
   return { id, a: null, b: null, sport: null, winner: null };
@@ -44,6 +44,63 @@ function newGame(id) {
 function load() {
   try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : null; }
   catch { return null; }
+}
+
+function getStats(games) {
+  const overall  = { 0: 0, 1: 0, 2: 0, 3: 0 };
+  const bySport  = { bp: { 0:0,1:0,2:0,3:0 }, pool: { 0:0,1:0,2:0,3:0 } };
+  games.forEach(g => {
+    if (g.winner !== null) {
+      overall[g.winner]++;
+      if (g.sport) bySport[g.sport][g.winner]++;
+    }
+  });
+  return { overall, bySport };
+}
+
+function ranked(winsMap) {
+  return TEAMS.map(t => ({ ...t, wins: winsMap[t.id] }))
+    .sort((a, b) => b.wins - a.wins);
+}
+
+function MedalRow({ team, wins, color, showMedals }) {
+  const isLeader = wins > 0;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: "1px solid #12121a" }}>
+      <div style={{ fontSize: 24 }}>{team.flag}</div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>{team.name}</div>
+        <div style={{ fontSize: 10, color: "#6b6b7a" }}>{team.country}</div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: 110 }}>
+        {wins > 0
+          ? Array.from({ length: wins }).map((_, i) => <span key={i} style={{ fontSize: 18 }}>🥇</span>)
+          : <span style={{ fontSize: 11, color: "#3a3a4a" }}>—</span>
+        }
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardCard({ title, icon, color, teams }) {
+  const leader = teams[0];
+  const hasAny = teams.some(t => t.wins > 0);
+  return (
+    <div style={{ background: "#1a1a24", borderRadius: 14, overflow: "hidden", border: "1px solid #1e1e28" }}>
+      <div style={{ padding: "12px 14px", background: "#14141e", borderBottom: "1px solid #12121a", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 16 }}>{icon}</span>
+        <span style={{ fontSize: 12, fontWeight: 800, color: color, letterSpacing: "0.06em", textTransform: "uppercase" }}>{title}</span>
+        {hasAny && (
+          <span style={{ marginLeft: "auto", fontSize: 11, color: color, fontWeight: 700 }}>
+            {leader.flag} {leader.name} leads
+          </span>
+        )}
+      </div>
+      {teams.map((team, i) => (
+        <MedalRow key={team.id} team={team} wins={team.wins} color={color} />
+      ))}
+    </div>
+  );
 }
 
 function App() {
@@ -71,17 +128,15 @@ function App() {
   }
 
   function setWinner(id, teamId) {
-    setGames(prev => prev.map(g => {
-      if (g.id !== id) return g;
-      return { ...g, winner: g.winner === teamId ? null : teamId };
-    }));
+    setGames(prev => prev.map(g =>
+      g.id !== id ? g : { ...g, winner: g.winner === teamId ? null : teamId }
+    ));
   }
 
-  // Medal count: every win = one gold medal
-  const medalCount = { 0: 0, 1: 0, 2: 0, 3: 0 };
-  games.forEach(g => { if (g.winner !== null) medalCount[g.winner]++; });
-  const medalTable = TEAMS.map(t => ({ ...t, medals: medalCount[t.id] }))
-    .sort((a, b) => b.medals - a.medals);
+  const { overall, bySport } = getStats(games);
+  const overallRanked = ranked(overall);
+  const bpRanked      = ranked(bySport.bp);
+  const poolRanked    = ranked(bySport.pool);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f0f13", padding: "20px 16px 60px" }}>
@@ -102,28 +157,22 @@ function App() {
         {/* Games */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {games.map((game, idx) => {
-            const sport = SPORTS.find(s => s.id === game.sport);
-            const color = sport ? sport.color : "#6b6b7a";
-            const teamA = game.a !== null ? TEAMS[game.a] : null;
-            const teamB = game.b !== null ? TEAMS[game.b] : null;
-            const ready = teamA && teamB && sport;
+            const sport    = SPORTS.find(s => s.id === game.sport);
+            const color    = sport ? sport.color : "#6b6b7a";
+            const teamA    = game.a !== null ? TEAMS[game.a] : null;
+            const teamB    = game.b !== null ? TEAMS[game.b] : null;
+            const ready    = teamA && teamB && sport;
             const hasWinner = game.winner !== null;
 
             return (
               <div key={game.id} className="slide" style={{ background: "#1a1a24", borderRadius: 16, overflow: "hidden", border: hasWinner ? "1px solid " + color + "60" : "1px solid #1e1e28" }}>
-
                 {/* Game header */}
                 <div style={{ padding: "10px 14px", background: "#14141e", borderBottom: "1px solid #12121a", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a", fontWeight: 700 }}>
-                    Game {idx + 1}
-                  </span>
-                  <button onClick={() => removeGame(game.id)} style={{ fontSize: 11, color: "#3a2a2a", background: "transparent", border: "none", cursor: "pointer", padding: "2px 6px" }}>
-                    ✕ Remove
-                  </button>
+                  <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a", fontWeight: 700 }}>Game {idx + 1}</span>
+                  <button onClick={() => removeGame(game.id)} style={{ fontSize: 11, color: "#3a2a2a", background: "transparent", border: "none", cursor: "pointer" }}>✕ Remove</button>
                 </div>
 
                 <div style={{ padding: "14px" }}>
-
                   {/* Sport picker */}
                   <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
                     {SPORTS.map(s => (
@@ -134,44 +183,29 @@ function App() {
                     ))}
                   </div>
 
-                  {/* Team picker */}
+                  {/* Team pickers */}
                   <div style={{ display: "flex", gap: 8, marginBottom: ready ? 14 : 0 }}>
-                    {/* Team A */}
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                      <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 2, textAlign: "center" }}>Team A</div>
-                      {TEAMS.map(t => {
-                        const isSelected = game.a === t.id;
-                        const isDisabled = game.b === t.id;
-                        return (
-                          <button key={t.id} onClick={() => !isDisabled && updateGame(game.id, { a: t.id, winner: null })}
-                            style={{ padding: "8px 6px", borderRadius: 8, border: isSelected ? "2px solid #f59e0b" : "2px solid #2a2a3a", background: isSelected ? "#f59e0b18" : "transparent", color: isSelected ? "#f59e0b" : isDisabled ? "#252530" : "#f0f0f5", cursor: isDisabled ? "default" : "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 18 }}>{t.flag}</span>
-                            <span style={{ lineHeight: 1.2 }}>{t.name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div style={{ display: "flex", alignItems: "center", color: "#2a2a3a", fontWeight: 800, fontSize: 12, paddingTop: 24 }}>VS</div>
-
-                    {/* Team B */}
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                      <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 2, textAlign: "center" }}>Team B</div>
-                      {TEAMS.map(t => {
-                        const isSelected = game.b === t.id;
-                        const isDisabled = game.a === t.id;
-                        return (
-                          <button key={t.id} onClick={() => !isDisabled && updateGame(game.id, { b: t.id, winner: null })}
-                            style={{ padding: "8px 6px", borderRadius: 8, border: isSelected ? "2px solid #8b5cf6" : "2px solid #2a2a3a", background: isSelected ? "#8b5cf618" : "transparent", color: isSelected ? "#8b5cf6" : isDisabled ? "#252530" : "#f0f0f5", cursor: isDisabled ? "default" : "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 18 }}>{t.flag}</span>
-                            <span style={{ lineHeight: 1.2 }}>{t.name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    {["a","b"].map((slot, si) => (
+                      <div key={slot} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 2, textAlign: "center" }}>Team {si === 0 ? "A" : "B"}</div>
+                        {TEAMS.map(t => {
+                          const other = slot === "a" ? game.b : game.a;
+                          const isSelected = game[slot] === t.id;
+                          const isDisabled = other === t.id;
+                          const selColor = si === 0 ? "#f59e0b" : "#8b5cf6";
+                          return (
+                            <button key={t.id} onClick={() => !isDisabled && updateGame(game.id, { [slot]: t.id, winner: null })}
+                              style={{ padding: "8px 6px", borderRadius: 8, border: isSelected ? "2px solid " + selColor : "2px solid #2a2a3a", background: isSelected ? selColor + "18" : "transparent", color: isSelected ? selColor : isDisabled ? "#252530" : "#f0f0f5", cursor: isDisabled ? "default" : "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 18 }}>{t.flag}</span>
+                              <span style={{ lineHeight: 1.2 }}>{t.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
 
-                  {/* Winner picker — only shows when both teams + sport selected */}
+                  {/* Winner picker */}
                   {ready && (
                     <div>
                       <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 8, textAlign: "center" }}>
@@ -199,40 +233,32 @@ function App() {
           })}
         </div>
 
-        {/* Add game button */}
+        {/* Add game */}
         <button onClick={addGame} style={{ marginTop: 12, width: "100%", padding: "14px", borderRadius: 14, border: "1px dashed #2a2a3a", background: "transparent", color: "#6b6b7a", cursor: "pointer", fontSize: 14, fontWeight: 700 }}>
           + Add Game
         </button>
 
-        {/* Medal Table */}
-        <div style={{ marginTop: 32 }}>
-          <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 12 }}>
-            🏅 Live Medal Count
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {medalTable.map((team, i) => (
-              <div key={team.id} style={{ background: "#1a1a24", borderRadius: 14, padding: "16px", border: i === 0 && team.medals > 0 ? "1px solid #f59e0b40" : "1px solid #1e1e28", display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ fontSize: 28 }}>{team.flag}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 800, fontSize: 13 }}>{team.name}</div>
-                  <div style={{ fontSize: 11, color: "#6b6b7a" }}>{team.country}</div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: 130 }}>
-                  {team.medals > 0
-                    ? Array.from({ length: team.medals }).map((_, wi) => (
-                        <span key={wi} style={{ fontSize: 20 }}>🥇</span>
-                      ))
-                    : <span style={{ fontSize: 11, color: "#3a3a4a" }}>No medals yet</span>
-                  }
-                </div>
-              </div>
-            ))}
+        {/* ── LEADERBOARDS ── */}
+        <div style={{ marginTop: 36 }}>
+          <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 14 }}>🏅 Live Leaderboards</div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+            {/* Overall */}
+            <LeaderboardCard title="Overall" icon="🏆" color="#10b981" teams={overallRanked} />
+
+            {/* Beer Pong */}
+            <LeaderboardCard title="Beer Pong" icon="🏓" color="#f59e0b" teams={bpRanked} />
+
+            {/* Pool */}
+            <LeaderboardCard title="Pool" icon="🎱" color="#8b5cf6" teams={poolRanked} />
+
           </div>
         </div>
 
         {/* Reset */}
-        <button onClick={() => { if (confirm("Reset everything?")) { setGames([newGame(0)]); }}}
-          style={{ marginTop: 16, width: "100%", padding: "12px", borderRadius: 12, border: "1px solid #2a1a1a", background: "transparent", color: "#3a2a2a", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
+        <button onClick={() => { if (confirm("Reset everything?")) setGames([newGame(0)]); }}
+          style={{ marginTop: 20, width: "100%", padding: "12px", borderRadius: 12, border: "1px solid #2a1a1a", background: "transparent", color: "#3a2a2a", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>
           Reset Tournament
         </button>
 
