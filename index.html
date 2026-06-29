@@ -31,7 +31,7 @@ const SPORTS = [
   { id: "pool", name: "Pool", icon: "🎱", color: "#8b5cf6" },
 ];
 
-const STORAGE_KEY = "bracket-elim-v2";
+const STORAGE_KEY = "bracket-elim-v3";
 
 function shuffle(arr) {
   const a = [...arr];
@@ -42,7 +42,6 @@ function shuffle(arr) {
   return a;
 }
 
-// bracket per sport: { r1: [{a, b, winner}, {a, b, winner}], r2: [{a, b, winner}] }
 function initBracket() {
   const b = {};
   for (const sport of SPORTS) {
@@ -65,22 +64,38 @@ function loadState() {
   } catch { return null; }
 }
 
-function getOverallStandings(brackets) {
-  const wins = { 0: 0, 1: 0, 2: 0, 3: 0 };
+// Returns { teamId: { gold: [{sport}], silver: [{sport}], bronze: [{sport}] } }
+function getMedals(brackets) {
+  const medals = {};
+  TEAMS.forEach(t => { medals[t.id] = { gold: [], silver: [], bronze: [] }; });
+
   for (const sport of SPORTS) {
     const b = brackets[sport.id];
-    [...b.r1, ...b.r2].forEach(m => {
-      if (m.winner !== null) wins[m.winner]++;
+    const r1 = b.r1;
+    const final = b.r2[0];
+
+    // Bronze: r1 losers (if that game has a winner)
+    r1.forEach(match => {
+      if (match.winner !== null) {
+        const loser = match.winner === match.a ? match.b : match.a;
+        medals[loser].bronze.push(sport);
+      }
     });
+
+    // Gold & Silver: from final
+    if (final.winner !== null) {
+      const loser = final.winner === final.a ? final.b : final.a;
+      medals[final.winner].gold.push(sport);
+      medals[loser].silver.push(sport);
+    }
   }
-  return TEAMS.map(t => ({ ...t, wins: wins[t.id] })).sort((a, b) => b.wins - a.wins);
+  return medals;
 }
 
 function App() {
   const [brackets, setBrackets] = useState(() => loadState() || initBracket());
   const [activeSport, setActiveSport] = useState("bp");
   const [saveFlash, setSaveFlash] = useState(false);
-  const [showOverall, setShowOverall] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(brackets));
@@ -93,11 +108,8 @@ function App() {
     setBrackets(prev => {
       const b = JSON.parse(JSON.stringify(prev));
       const match = b[sportId][round][matchIdx];
-
-      // toggle off
       if (match.winner === winnerId) {
         match.winner = null;
-        // clear finals if we're clearing r1
         if (round === "r1") {
           b[sportId].r2[0].a = null;
           b[sportId].r2[0].b = null;
@@ -105,10 +117,7 @@ function App() {
         }
         return b;
       }
-
       match.winner = winnerId;
-
-      // auto-seed finals when both r1 games done
       if (round === "r1") {
         const w0 = b[sportId].r1[0].winner;
         const w1 = b[sportId].r1[1].winner;
@@ -122,7 +131,6 @@ function App() {
           b[sportId].r2[0].winner = null;
         }
       }
-
       return b;
     });
   }
@@ -138,7 +146,20 @@ function App() {
   const finalsReady = b.r1[0].winner !== null && b.r1[1].winner !== null;
   const champion = b.r2[0].winner !== null ? TEAMS[b.r2[0].winner] : null;
   const allSportsDone = SPORTS.every(s => brackets[s.id].r2[0].winner !== null);
-  const overall = getOverallStandings(brackets);
+  const medals = getMedals(brackets);
+
+  // Sort medal table: gold desc, silver desc, bronze desc
+  const medalStandings = TEAMS.map(t => ({
+    ...t,
+    gold: medals[t.id].gold,
+    silver: medals[t.id].silver,
+    bronze: medals[t.id].bronze,
+    total: medals[t.id].gold.length + medals[t.id].silver.length + medals[t.id].bronze.length,
+  })).sort((a, b) =>
+    b.gold.length - a.gold.length ||
+    b.silver.length - a.silver.length ||
+    b.bronze.length - a.bronze.length
+  );
 
   function Matchup({ match, round, idx, color, locked }) {
     const teamA = match.a !== null ? TEAMS[match.a] : null;
@@ -195,20 +216,18 @@ function App() {
         {SPORTS.map(s => {
           const sb = brackets[s.id];
           const done = [...sb.r1, ...sb.r2].filter(m => m.winner !== null).length;
-          const total = 3;
           const isActive = s.id === activeSport;
           const sportChamp = sb.r2[0].winner !== null;
           return (
             <button key={s.id} onClick={() => setActiveSport(s.id)} style={{ padding: "10px 14px", borderRadius: 10, border: isActive ? `2px solid ${s.color}` : "2px solid #1e1e28", background: isActive ? `${s.color}18` : "#1a1a24", color: isActive ? s.color : "#6b6b7a", cursor: "pointer", fontWeight: 600, fontSize: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: 90 }}>
               <span style={{ fontSize: 20 }}>{sportChamp ? "🏆" : s.icon}</span>
               <span>{s.name}</span>
-              <span style={{ fontSize: 10, opacity: 0.7 }}>{done}/{total} games</span>
+              <span style={{ fontSize: 10, opacity: 0.7 }}>{done}/3 games</span>
             </button>
           );
         })}
       </div>
 
-      {/* Bracket */}
       <div style={{ maxWidth: 480, margin: "0 auto" }}>
 
         {/* Round 1 */}
@@ -221,14 +240,14 @@ function App() {
           ))}
         </div>
 
-        {/* Finals */}
+        {/* Final */}
         <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: finalsReady ? sport.color : "#3a3a4a", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
           🏁 {sport.name} Final
           {!finalsReady && <span style={{ fontSize: 10, color: "#3a3a4a" }}>— complete Round 1 first</span>}
         </div>
         <Matchup match={b.r2[0]} round="r2" idx={0} color={sport.color} locked={!finalsReady} />
 
-        {/* Sport champion banner */}
+        {/* Sport champion */}
         {champion && (
           <div style={{ marginTop: 20, padding: 20, borderRadius: 14, background: `linear-gradient(135deg, ${sport.color}18, ${sport.color}08)`, border: `1px solid ${sport.color}40`, textAlign: "center" }}>
             <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: sport.color, marginBottom: 6 }}>
@@ -238,34 +257,78 @@ function App() {
           </div>
         )}
 
-        {/* Overall standings */}
-        <button onClick={() => setShowOverall(!showOverall)} style={{ marginTop: 28, width: "100%", padding: "13px", borderRadius: 12, border: "1px solid #1e1e28", background: "#1a1a24", color: "#f0f0f5", cursor: "pointer", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          📊 {showOverall ? "Hide" : "Show"} Overall Standings
-        </button>
-
-        {showOverall && (
-          <div style={{ marginTop: 10, background: "#1a1a24", borderRadius: 12, overflow: "hidden", border: "1px solid #1e1e28" }}>
-            <div style={{ padding: "10px 16px", borderBottom: "1px solid #1e1e28", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b6b7a", display: "flex", gap: 8 }}>
-              <span style={{ flex: 1 }}>Team</span>
-              <span style={{ width: 60, textAlign: "center" }}>Sport Wins</span>
-            </div>
-            {overall.map((team, i) => (
-              <div key={team.id} style={{ padding: "13px 16px", display: "flex", alignItems: "center", gap: 8, borderBottom: i < overall.length - 1 ? "1px solid #1e1e28" : "none", background: i === 0 && team.wins > 0 ? "#f59e0b08" : "transparent" }}>
-                <span style={{ fontSize: 15, width: 22 }}>{i === 0 && team.wins > 0 ? "👑" : i === 1 ? "🥈" : i === 2 ? "🥉" : "💀"}</span>
-                <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{team.emoji} {team.name}</span>
-                <span style={{ width: 60, textAlign: "center", fontWeight: 700, color: "#10b981" }}>{team.wins}</span>
-              </div>
-            ))}
+        {/* ── MEDAL TABLE ── */}
+        <div style={{ marginTop: 32 }}>
+          <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 12 }}>
+            🏅 Live Medal Table
           </div>
-        )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {medalStandings.map((team, i) => {
+              const hasAny = team.total > 0;
+              return (
+                <div key={team.id} style={{ background: "#1a1a24", borderRadius: 12, padding: "14px 16px", border: i === 0 && hasAny ? "1px solid #f59e0b30" : "1px solid #1e1e28" }}>
+                  {/* Team row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: hasAny ? 10 : 0 }}>
+                    <span style={{ fontSize: 18 }}>{team.emoji}</span>
+                    <span style={{ flex: 1, fontWeight: 700, fontSize: 13 }}>{team.name}</span>
+                    {/* Medal counts */}
+                    <div style={{ display: "flex", gap: 10 }}>
+                      {[
+                        { medal: "🥇", count: team.gold.length },
+                        { medal: "🥈", count: team.silver.length },
+                        { medal: "🥉", count: team.bronze.length },
+                      ].map(({ medal, count }) => (
+                        <div key={medal} style={{ textAlign: "center", minWidth: 28 }}>
+                          <div style={{ fontSize: 15 }}>{medal}</div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: count > 0 ? "#f0f0f5" : "#3a3a4a" }}>{count}</div>
+                        </div>
+                      ))}
+                      <div style={{ textAlign: "center", minWidth: 28, borderLeft: "1px solid #2a2a3a", paddingLeft: 10 }}>
+                        <div style={{ fontSize: 11, color: "#6b6b7a" }}>Total</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: hasAny ? "#f0f0f5" : "#3a3a4a" }}>{team.total}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Medal breakdown by sport */}
+                  {hasAny && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {team.gold.map(s => (
+                        <span key={`g-${s.id}`} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#f59e0b18", color: "#f59e0b", fontWeight: 600 }}>
+                          🥇 {s.icon} {s.name}
+                        </span>
+                      ))}
+                      {team.silver.map(s => (
+                        <span key={`s-${s.id}`} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#94a3b818", color: "#94a3b8", fontWeight: 600 }}>
+                          🥈 {s.icon} {s.name}
+                        </span>
+                      ))}
+                      {team.bronze.map(s => (
+                        <span key={`b-${s.id}`} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 20, background: "#cd7f3218", color: "#cd7f32", fontWeight: 600 }}>
+                          🥉 {s.icon} {s.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {!hasAny && (
+                    <div style={{ fontSize: 11, color: "#3a3a4a" }}>No medals yet</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
         {/* Grand champion */}
         {allSportsDone && (
-          <div style={{ marginTop: 24, padding: 24, borderRadius: 16, background: "linear-gradient(135deg, #f59e0b18, #8b5cf618)", border: "1px solid #f59e0b50", textAlign: "center" }}>
+          <div style={{ marginTop: 28, padding: 24, borderRadius: 16, background: "linear-gradient(135deg, #f59e0b18, #8b5cf618)", border: "1px solid #f59e0b50", textAlign: "center" }}>
             <div style={{ fontSize: 44, marginBottom: 8 }}>🏆</div>
             <div style={{ fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", color: "#6b6b7a", marginBottom: 6 }}>Grand Champion</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#f59e0b" }}>{overall[0].emoji} {overall[0].name}</div>
-            <div style={{ fontSize: 12, color: "#6b6b7a", marginTop: 6 }}>{overall[0].wins} sport {overall[0].wins === 1 ? "win" : "wins"}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: "#f59e0b" }}>{medalStandings[0].emoji} {medalStandings[0].name}</div>
+            <div style={{ fontSize: 12, color: "#6b6b7a", marginTop: 6 }}>
+              {medalStandings[0].gold.length}🥇 · {medalStandings[0].silver.length}🥈 · {medalStandings[0].bronze.length}🥉
+            </div>
           </div>
         )}
 
